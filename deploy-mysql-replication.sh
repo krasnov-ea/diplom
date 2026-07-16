@@ -7,10 +7,12 @@
 #   1) из репозиториев Ubuntu;
 #   2) из локальных .deb в /home/administrator/distr/.
 #
-# После установки:
-#   - запускается mysql_secure_installation;
+# В начале работы:
+#   - можно установить MySQL или пропустить установку;
+#   - можно запустить или пропустить mysql_secure_installation;
 #   - предлагается выбрать роль Master, Slave или без репликации;
-#   - создается отдельный /etc/mysql/mysql.conf.d/99-replication.cnf;
+#   - параметры репликации записываются в 99-replication.cnf;
+#   - bind-address Master изменяется только в mysqld.cnf;
 #   - для Master создается дамп /root/backup.sql и передается на Slave;
 #   - для Slave импортируется /tmp/backup.sql и запускается GTID-репликация.
 #
@@ -36,10 +38,13 @@ readonly REQUIRED_OS_VERSION="24.04"
 readonly DEFAULT_LOCAL_DIR="/home/administrator/distr"
 readonly DEFAULT_DUMP_FILE="/root/backup.sql"
 readonly REPLICATION_CONFIG="/etc/mysql/mysql.conf.d/99-replication.cnf"
+readonly MYSQLD_CONFIG="/etc/mysql/mysql.conf.d/mysqld.cnf"
 
+INSTALL_MODE=""
 INSTALL_SOURCE=""
 LOCAL_DIR="${LOCAL_DIR:-$DEFAULT_LOCAL_DIR}"
 MYSQL_ROLE=""
+SECURE_INSTALLATION_MODE=""
 ASSUME_YES=0
 OFFLINE_MODE=0
 SKIP_SECURE_INSTALLATION=0
@@ -83,7 +88,8 @@ show_banner() {
     printf '%s\n' "${COLOR_BOLD}${COLOR_CYAN}  АВТОМАТИЧЕСКОЕ РАЗВЕРТЫВАНИЕ MYSQL И GTID-РЕПЛИКАЦИИ${COLOR_RESET}"
     printf '%s\n' "${COLOR_CYAN}══════════════════════════════════════════════════════════════════════${COLOR_RESET}"
     printf '  Система:          Ubuntu 24.04 LTS\n'
-    printf '  Установка:        репозиторий Ubuntu или локальные .deb\n'
+    printf '  Установка:        установить MySQL или использовать существующий\n'
+    printf '  Безопасность:     запуск или пропуск mysql_secure_installation\n'
     printf '  Роли:             Master / Slave / без репликации\n'
     printf '  Дамп Master:      %s\n' "$DUMP_FILE"
     printf '  Дамп на Slave:    /tmp/backup.sql\n'
@@ -141,6 +147,9 @@ usage() {
   ${SCRIPT_NAME} [параметры]
 
 Установка:
+  --install-mysql         установить или доустановить MySQL
+  --skip-mysql-installation
+                          пропустить установку и использовать существующий MySQL
   --source repository|local
                           источник установки
   --local-dir PATH        каталог локальных .deb
@@ -158,6 +167,8 @@ usage() {
   --skip-dump-transfer    создать дамп, но не передавать его на Slave
 
 Безопасность:
+  --run-secure-installation
+                          запустить mysql_secure_installation
   --skip-secure-installation
                           не запускать mysql_secure_installation
   --skip-hardening        совместимый псевдоним предыдущего параметра
@@ -173,11 +184,26 @@ usage() {
 
 Примеры:
   ${SCRIPT_NAME}
+  ${SCRIPT_NAME} --skip-mysql-installation --skip-secure-installation --role master
   ${SCRIPT_NAME} --source repository --role master
   ${SCRIPT_NAME} --source repository --role slave --source-host 10.10.93.10
   ${SCRIPT_NAME} --source local --local-dir ${DEFAULT_LOCAL_DIR} --offline
   MYSQL_REPL_PASSWORD='СложныйПароль' ${SCRIPT_NAME} --role master
 EOF
+}
+
+normalize_install_mode() {
+    case "${1,,}" in
+        install|установить|1)
+            printf 'install'
+            ;;
+        skip|пропустить|existing|существующий|2)
+            printf 'skip'
+            ;;
+        *)
+            return 1
+            ;;
+    esac
 }
 
 normalize_source() {
@@ -214,6 +240,14 @@ normalize_role() {
 parse_args() {
     while (($# > 0)); do
         case "$1" in
+            --install-mysql)
+                INSTALL_MODE="install"
+                shift
+                ;;
+            --skip-mysql-installation|--skip-install)
+                INSTALL_MODE="skip"
+                shift
+                ;;
             --source)
                 (($# >= 2)) || die "Для --source требуется значение."
                 INSTALL_SOURCE="$(normalize_source "$2")" ||
@@ -264,7 +298,13 @@ parse_args() {
                 SKIP_DUMP_TRANSFER=1
                 shift
                 ;;
+            --run-secure-installation)
+                SECURE_INSTALLATION_MODE="run"
+                SKIP_SECURE_INSTALLATION=0
+                shift
+                ;;
             --skip-secure-installation|--skip-hardening)
+                SECURE_INSTALLATION_MODE="skip"
                 SKIP_SECURE_INSTALLATION=1
                 shift
                 ;;
@@ -386,6 +426,58 @@ acquire_privileges() {
     SUDO_KEEPALIVE_PID=$!
 }
 
+choose_install_mode() {
+    [[ -n "$INSTALL_MODE" ]] && return
+
+    while true; do
+        cat <<'EOF'
+
+Установка MySQL:
+  1) Установить или доустановить MySQL
+  2) Пропустить установку и использовать уже установленный MySQL
+EOF
+        local choice=""
+        read -r -p "Ваш выбор [1/2]: " choice
+
+        if INSTALL_MODE="$(normalize_install_mode "$choice")"; then
+            return
+        fi
+
+        warn "Введите 1 или 2."
+    done
+}
+
+choose_secure_installation_mode() {
+    [[ -n "$SECURE_INSTALLATION_MODE" ]] && return
+
+    while true; do
+        cat <<'EOF'
+
+Запуск mysql_secure_installation:
+  1) Запустить интерактивную настройку безопасности
+  2) Пропустить mysql_secure_installation
+EOF
+        local choice=""
+        read -r -p "Ваш выбор [1/2]: " choice
+
+        case "$choice" in
+            1|run|запустить)
+                SECURE_INSTALLATION_MODE="run"
+                SKIP_SECURE_INSTALLATION=0
+                return
+                ;;
+            2|skip|пропустить)
+                SECURE_INSTALLATION_MODE="skip"
+                SKIP_SECURE_INSTALLATION=1
+                return
+                ;;
+            *)
+                warn "Введите 1 или 2."
+                ;;
+        esac
+    done
+}
+
 choose_source() {
     [[ -n "$INSTALL_SOURCE" ]] && return
 
@@ -505,6 +597,22 @@ install_from_local_directory() {
 
     "${SUDO[@]}" env DEBIAN_FRONTEND=noninteractive \
         apt-get install -y "${apt_options[@]}" "${deb_files[@]}"
+}
+
+verify_existing_mysql_installation() {
+    local command_name
+
+    for command_name in mysql mysqladmin mysqldump; do
+        command -v "$command_name" >/dev/null 2>&1 ||
+            die "Установка MySQL пропущена, но команда ${command_name} не найдена."
+    done
+
+    if ! systemctl list-unit-files mysql.service >/dev/null 2>&1; then
+        die "Установка MySQL пропущена, но служба mysql.service не найдена."
+    fi
+
+    INSTALL_SOURCE="existing"
+    log "${COLOR_GREEN}${COLOR_BOLD}✓ Используется существующая установка MySQL: $(mysql --version)${COLOR_RESET}"
 }
 
 start_and_wait_for_mysql() {
@@ -641,6 +749,62 @@ mysqldump_admin() {
     esac
 }
 
+configure_master_bind_address() {
+    local backup
+    local temp_config
+
+    [[ -f "$MYSQLD_CONFIG" ]] ||
+        die "Основной конфигурационный файл MySQL не найден: ${MYSQLD_CONFIG}"
+
+    backup="${MYSQLD_CONFIG}.bak.$(date +%Y%m%d-%H%M%S)"
+    "${SUDO[@]}" cp -a "$MYSQLD_CONFIG" "$backup"
+
+    temp_config="$(mktemp)"
+
+    # Удаляем все активные bind-address и добавляем единственное значение
+    # непосредственно в секцию [mysqld].
+    awk '
+        BEGIN {
+            inserted = 0
+        }
+
+        /^[[:space:]]*bind-address[[:space:]]*=/ {
+            next
+        }
+
+        /^[[:space:]]*\[mysqld\][[:space:]]*$/ && inserted == 0 {
+            print
+            print "bind-address = 0.0.0.0"
+            inserted = 1
+            next
+        }
+
+        {
+            print
+        }
+
+        END {
+            if (inserted == 0) {
+                print ""
+                print "[mysqld]"
+                print "bind-address = 0.0.0.0"
+            }
+        }
+    ' "$MYSQLD_CONFIG" >"$temp_config"
+
+    "${SUDO[@]}" install \
+        -o root \
+        -g root \
+        -m 0644 \
+        "$temp_config" \
+        "$MYSQLD_CONFIG"
+
+    rm -f -- "$temp_config"
+
+    log "bind-address = 0.0.0.0 установлен в ${MYSQLD_CONFIG}"
+    log "Резервная копия основного конфига: ${backup}"
+}
+
 backup_existing_replication_config() {
     if [[ -f "$REPLICATION_CONFIG" ]]; then
         local backup="${REPLICATION_CONFIG}.bak.$(date +%Y%m%d-%H%M%S)"
@@ -672,10 +836,6 @@ write_replication_config() {
         printf '# Создан %s\n' "$SCRIPT_NAME"
         printf '[mysqld]\n'
 
-        if [[ "$role" == "master" ]]; then
-            printf 'bind-address = 0.0.0.0\n'
-        fi
-
         printf 'server-id = %s\n' "$server_id"
         printf 'log-bin = mysql-bin\n'
         printf 'binlog-format = ROW\n'
@@ -696,6 +856,40 @@ write_replication_config() {
     rm -f -- "$temp_config"
 
     log "Создан конфигурационный файл: ${REPLICATION_CONFIG}"
+}
+
+verify_master_runtime_config() {
+    local values
+    local bind_address
+    local server_id
+    local gtid_mode
+    local log_bin
+
+    values="$(
+        mysql_admin --batch --skip-column-names --execute="
+            SELECT
+                @@GLOBAL.bind_address,
+                @@GLOBAL.server_id,
+                @@GLOBAL.gtid_mode,
+                @@GLOBAL.log_bin;
+        "
+    )"
+
+    read -r bind_address server_id gtid_mode log_bin <<<"$values"
+
+    [[ "$bind_address" == "0.0.0.0" ]] ||
+        die "MySQL применил bind-address=${bind_address}, ожидалось 0.0.0.0."
+
+    [[ "$server_id" == "1" ]] ||
+        die "MySQL применил server-id=${server_id}, ожидалось 1."
+
+    [[ "$gtid_mode" == "ON" ]] ||
+        die "MySQL применил gtid_mode=${gtid_mode}, ожидалось ON."
+
+    [[ "$log_bin" == "1" ]] ||
+        die "Бинарный журнал MySQL не включен."
+
+    log "${COLOR_GREEN}${COLOR_BOLD}✓ Master слушает 0.0.0.0:3306; server-id=1; GTID=ON.${COLOR_RESET}"
 }
 
 create_replication_user() {
@@ -843,9 +1037,11 @@ SQL
 configure_master() {
     log "${COLOR_CYAN}${COLOR_BOLD}Настройка роли Master.${COLOR_RESET}"
 
+    configure_master_bind_address
     write_replication_config master
     restart_mysql
     prepare_mysql_admin_auth
+    verify_master_runtime_config
     create_replication_user
     create_master_dump
     transfer_dump_to_slave
@@ -1043,7 +1239,9 @@ verify_installation() {
 
     printf '\n'
     log "${COLOR_GREEN}${COLOR_BOLD}✓ Развертывание MySQL завершено.${COLOR_RESET}"
+    printf '  Режим установки:   %s\n' "$INSTALL_MODE"
     printf '  Источник пакетов:  %s\n' "$INSTALL_SOURCE"
+    printf '  Secure install:    %s\n' "$SECURE_INSTALLATION_MODE"
     printf '  Серверный пакет:   %s %s\n' "$server_package" "$package_version"
     printf '  Клиент:             %s\n' "$mysql_version"
     printf '  Служба:            %s; автозапуск: %s\n' "$service_state" "$service_enabled"
@@ -1068,18 +1266,31 @@ main() {
     show_banner
     check_prerequisites
     acquire_privileges
-    choose_source
-    show_existing_mysql
+    choose_install_mode
+    choose_secure_installation_mode
 
-    case "$INSTALL_SOURCE" in
-        repository)
-            install_from_repository
+    case "$INSTALL_MODE" in
+        install)
+            choose_source
+            show_existing_mysql
+
+            case "$INSTALL_SOURCE" in
+                repository)
+                    install_from_repository
+                    ;;
+                local)
+                    install_from_local_directory
+                    ;;
+                *)
+                    die "Неизвестный источник установки."
+                    ;;
+            esac
             ;;
-        local)
-            install_from_local_directory
+        skip)
+            verify_existing_mysql_installation
             ;;
         *)
-            die "Неизвестный источник установки."
+            die "Неизвестный режим установки MySQL."
             ;;
     esac
 
