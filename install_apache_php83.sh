@@ -65,14 +65,14 @@ sudo tee /var/www/html/index.php >/dev/null <<'PHP'
 <title>Apache Backend Server 1</title>
 </head>
 <body>
-    <h1>Привет от Apache Server 1!</h1>
+    <h1>Привет от Apache Server!</h1>
 
     <p>Это backend сервер Apache с IP: <?php echo $_SERVER['SERVER_ADDR']; ?></p>
 
     <p>Порт: <?php echo $_SERVER['SERVER_PORT']; ?></p>
 
     <hr>
-    <p>Запрос обработан через nginx proxy</p>
+    
 </body>
 </html>
 PHP
