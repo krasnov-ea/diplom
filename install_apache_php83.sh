@@ -62,11 +62,11 @@ sudo tee /var/www/html/index.php >/dev/null <<'PHP'
 <html>
 <head>
 <meta charset="UTF-8">
-<title>Apache Backend Server 1</title>
+<title>Apache Backend Server</title>
 </head>
 <body>
     <h1>Привет от Apache Server!</h1>
-
+<h2>Hostname: <?php echo gethostname(); ?></h2>
     <p>Это backend сервер Apache с IP: <?php echo $_SERVER['SERVER_ADDR']; ?></p>
 
     <p>Порт: <?php echo $_SERVER['SERVER_PORT']; ?></p>
