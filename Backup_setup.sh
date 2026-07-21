@@ -1,6 +1,6 @@
 #!/bin/bash
 
-BACKUP_SERVER="10.10.93.230"
+BACKUP_SERVER="10.10.93.239"
 BACKUP_USER="ubackup"
 BACKUP_SCRIPT="/usr/local/bin/mysql_backup.sh"
 
