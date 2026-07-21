@@ -1,4 +1,3 @@
-```bash
 #!/bin/bash
 
 BACKUP_SERVER="10.10.93.239"
