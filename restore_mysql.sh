@@ -1,4 +1,3 @@
-```bash
 #!/bin/bash
 
 set -o pipefail
@@ -98,4 +97,3 @@ else
     echo "Ошибка восстановления"
     exit 1
 fi
-```
