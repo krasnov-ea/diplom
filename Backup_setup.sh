@@ -63,5 +63,3 @@ echo "Проверить cron:"
 echo "sudo crontab -l"
 echo
 echo "Запустить вручную:"
-echo "sudo $BACKUP_SCRIPT"
-```
