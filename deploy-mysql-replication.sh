@@ -1,31 +1,4 @@
 #!/usr/bin/env bash
-#
-# Автоматическая установка MySQL и настройка GTID-репликации
-# Master / Replica на Ubuntu 24.04 LTS.
-#
-# Варианты установки:
-#   1) из репозиториев Ubuntu;
-#   2) из локальных .deb в /home/administrator/distr/.
-#
-# В начале работы:
-#   - можно установить MySQL или пропустить установку;
-#   - можно запустить или пропустить mysql_secure_installation;
-#   - предлагается выбрать роль Master, Slave или без репликации;
-#   - параметры репликации записываются в 99-replication.cnf;
-#   - bind-address Master изменяется только в mysqld.cnf;
-#   - для Master создается дамп /root/backup.sql и передается на Slave;
-#   - для Slave импортируется /tmp/backup.sql и запускается GTID-репликация.
-#
-# Пароль репликации по умолчанию взят из задания:
-#   Zxcv#1234
-# Его можно заменить безопаснее через переменную окружения:
-#   MYSQL_REPL_PASSWORD='другой-пароль' ./deploy-mysql-ubuntu2404.sh
-#
-# ВАЖНО:
-#   - скрипт рассчитан на первичное развертывание;
-#   - импорт --all-databases изменяет данные MySQL на Slave;
-#   - порт TCP/3306 на Master должен быть доступен со Slave;
-#   - используйте уникальный пароль репликации в рабочей среде.
 
 set -Eeuo pipefail
 IFS=$'\n\t'
@@ -87,7 +60,6 @@ show_banner() {
     printf '%s\n' "${COLOR_CYAN}══════════════════════════════════════════════════════════════════════${COLOR_RESET}"
     printf '%s\n' "${COLOR_BOLD}${COLOR_CYAN}  АВТОМАТИЧЕСКОЕ РАЗВЕРТЫВАНИЕ MYSQL И GTID-РЕПЛИКАЦИИ${COLOR_RESET}"
     printf '%s\n' "${COLOR_CYAN}══════════════════════════════════════════════════════════════════════${COLOR_RESET}"
-    printf '  Система:          Ubuntu 24.04 LTS\n'
     printf '  Установка:        установить MySQL или использовать существующий\n'
     printf '  Безопасность:     запуск или пропуск mysql_secure_installation\n'
     printf '  Роли:             Master / Slave / без репликации\n'
